@@ -28,28 +28,6 @@ provider:
     ATTACHMENT_S3_BUCKET: serverless-c4-todo-images-${self:provider.stage}
     SIGNED_URL_EXPIRATION: 300
 
-  iamRoleStatements:
-    - Effect: Allow
-      Action:
-        - codedeploy:*
-      Resource:
-        - '*'
-    - Effect: Allow
-      Action:
-        - s3:PutObject
-        - s3:GetObject
-      Resource: arn:aws:s3:::${self:provider.environment.ATTACHMENT_S3_BUCKET}/*
-    - Effect: Allow
-      Action:
-        - dynamodb:Scan
-        - dynamodb:PutItem
-        - dynamodb:GetItem
-      Resource: arn:aws:dynamodb:${self:provider.region}:*:table/${self:provider.environment.TODOS_TABLE}
-    - Effect: Allow
-      Action:
-        - dynamodb:Query
-      Resource: arn:aws:dynamodb:${self:provider.region}:*:table/${self:provider.environment.TODOS_TABLE}/index/${self:provider.environment.TODOS_CREATED_AT_INDEX}
-
   logs:
     # Enable API Gateway logs
     restApi: true
@@ -79,6 +57,11 @@ functions:
           path: todos
           cors: true
           authorizer: Auth
+    iamRoleStatements:
+      - Effect: Allow
+        Action:
+          - dynamodb:Query
+        Resource: arn:aws:dynamodb:${self:provider.region}:*:table/${self:provider.environment.TODOS_TABLE}/index/${self:provider.environment.TODOS_CREATED_AT_INDEX}
 
   # TODO: Configure this function - 
   # Provide iamRoleStatements property. Decide the Actions and AWS Resource. 
@@ -95,6 +78,11 @@ functions:
           request:
             schemas:
               application/json: ${file(models/create-todo-model.json)}
+    iamRoleStatements:
+      - Effect: Allow
+        Action:
+          - dynamodb:PutItem
+        Resource: arn:aws:dynamodb:${self:provider.region}:*:table/${self:provider.environment.TODOS_TABLE}
 
   # TODO: Configure this function
   # Provide property for setting up CORS, Authorizer, iamRoleStatements, and request schemas
@@ -104,6 +92,12 @@ functions:
       - http:
           method: patch
           path: todos/{todoId}
+    iamRoleStatements:
+      - Effect: Allow
+        Action:
+          - dynamodb:UpdateItem
+          - dynamodb:GetItem
+        Resource: arn:aws:dynamodb:${self:provider.region}:*:table/${self:provider.environment.TODOS_TABLE}
 
   # TODO: Configure this function
   # Provide property for setting up CORS, Authorizer, iamRoleStatements
@@ -113,6 +107,12 @@ functions:
       - http:
           method: delete
           path: todos/{todoId}
+    iamRoleStatements:
+      - Effect: Allow
+        Action:
+          - dynamodb:GetItem
+          - dynamodb:DeleteItem
+        Resource: arn:aws:dynamodb:${self:provider.region}:*:table/${self:provider.environment.TODOS_TABLE}
 
   # TODO: Configure this function
   # Provide property for setting up CORS, Authorizer, iamRoleStatements
@@ -122,6 +122,16 @@ functions:
       - http:
           method: post
           path: todos/{todoId}/attachment
+    iamRoleStatements:
+      - Effect: Allow
+        Action:
+          - dynamodb:UpdateItem
+          - dynamodb:GetItem
+        Resource: arn:aws:dynamodb:${self:provider.region}:*:table/${self:provider.environment.TODOS_TABLE}
+      - Effect: Allow
+        Action:
+          - s3:PutObject
+        Resource: arn:aws:s3:::${self:provider.environment.ATTACHMENT_S3_BUCKET}/*
 
 resources:
   Resources:
@@ -143,6 +153,31 @@ resources:
     TodosTable:
       Type: AWS::DynamoDB::Table
       Properties:
+        AttributeDefinitions:
+          - AttributeName: todoId
+            AttributeType: S
+          - AttributeName: createdAt
+            AttributeType: S
+          - AttributeName: userId
+            AttributeType: S
+        KeySchema:
+          - AttributeName: todoId
+            KeyType: RANGE
+          - AttributeName: userId
+            KeyType: HASH
+        BillingMode: PAY_PER_REQUEST
+        StreamSpecification:
+          StreamViewType: NEW_TODO
+        TableName: ${self:provider.environment.TODOS_TABLE}
+        GlobalSecondaryIndexes:
+          - IndexName: ${self:provider.environment.TODOS_CREATED_AT_INDEX}
+            KeySchema:
+            - AttributeName: userId
+              KeyType: HASH
+            - AttributeName: createdAt
+              KeyType: RANGE
+            Projection:
+              ProjectionType: ALL
 
     # TODO: Complete the bucket properties below. 
     # Do not forget to add the CorsConfiguration property
