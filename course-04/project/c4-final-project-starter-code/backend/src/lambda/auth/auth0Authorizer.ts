@@ -98,10 +98,10 @@ function getToken(authHeader: string): string {
 }
 
 function getSingingKey(jwks: any, kid: string): any {
-  const signingKeys = jwks.keys.filter(key => key.use === 'sig' // JWK property `use` determines the JWK is for signing
-    && key.kty === 'RSA' // We are only supporting RSA (RS256)
-    && key.kid           // The `kid` must be present to be useful for later
-    && ((key.x5c && key.x5c.length) || (key.n && key.e)) // Has useful public keys
+  const signingKeys = jwks.keys.filter(key => key.use === 'sig' 
+    && key.kty === 'RSA'
+    && key.kid
+    && ((key.x5c && key.x5c.length) || (key.n && key.e))
   ).map(key => {
     return { kid: key.kid, nbf: key.nbf, publicKey: certToPEM(key.x5c[0]) };
   });
