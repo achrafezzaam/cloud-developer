@@ -139,18 +139,6 @@ functions:
           - dynamodb:UpdateItem
         Resource: !GetAtt TodosTable.Arn
 
-  SyncWithS3Delete:
-    handler: src/lambda/dynamoDb/deleteS3Sync.handler
-    events:
-      - stream:
-          type: dynamodb
-          arn: !GetAtt TodosTable.StreamArn
-    iamRoleStatements:
-      - Effect: Allow
-        Action:
-          - s3:DeleteObject
-        Resource: !GetAtt AttachmentsBucket.Arn
-
 resources:
   Resources:
     # Add necessary AWS resources. You will need at least the following AWS resources
