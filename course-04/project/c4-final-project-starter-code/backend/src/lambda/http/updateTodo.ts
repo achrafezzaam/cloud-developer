@@ -1,47 +1,36 @@
 import 'source-map-support/register'
 
-import { APIGatewayProxyEvent, APIGatewayProxyHandler, APIGatewayProxyResult } from 'aws-lambda'
+import { APIGatewayProxyEvent, APIGatewayProxyResult } from 'aws-lambda'
+import * as middy from 'middy'
+import { cors, httpErrorHandler } from 'middy/middlewares'
 
-import {getUserId} from '../utils';
-import { createLogger } from '../../utils/logger'
 import { UpdateTodoRequest } from '../../requests/UpdateTodoRequest'
-import {updateTodo, checkTodoExists} from '../../helpers/todos';
+import { getUserId } from '../utils'
+import { updateTodo } from '../../helpers/todos'
 
-const logger = createLogger('Update Todo');
-export const handler: APIGatewayProxyHandler = async (event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> => {
-  const todoId = event.pathParameters.todoId;
-  const currentUser = getUserId(event);
-  const updatedTodo: UpdateTodoRequest = JSON.parse(event.body);
+export const handler = middy(
+  async (event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> => {
+    const todoId = event.pathParameters.todoId
+    const updatedTodo: UpdateTodoRequest = JSON.parse(event.body)
+    // TODO: Update a TODO item with the provided id using values in the "updatedTodo" object
 
-  const todoExist = await checkTodoExists(currentUser, todoId);
-  if (!todoExist) {
+    const userId = getUserId(event)
+    await updateTodo(
+      todoId,
+      userId,
+      updatedTodo
+    )
+
     return {
-      statusCode: 404,
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-      },
-      body: `Can't find Todo with Id: ${todoId}`
+      statusCode: 204,
+      body: ''
     }
-  }
+  })
 
-  try {
-    await updateTodo(currentUser, todoId, updatedTodo);
-    return {
-      statusCode: 200,
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-      },
-      body: 'Todo Item Updated Succesfully'
-    }
-  } catch (err) {
-    logger.error('Todo Item Update Failed', err);
-    return {
-      statusCode: 500,
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-      },
-      body: `Todo Item Update Failed`, 
-    }
-  }
-
-}
+handler
+  .use(httpErrorHandler())
+  .use(
+    cors({
+      credentials: true
+    })
+  )

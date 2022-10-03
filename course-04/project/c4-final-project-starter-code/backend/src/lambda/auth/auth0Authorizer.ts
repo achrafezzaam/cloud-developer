@@ -1,8 +1,9 @@
 import { CustomAuthorizerEvent, CustomAuthorizerResult } from 'aws-lambda'
 import 'source-map-support/register'
-import axios from 'axios'
-import { verify, decode } from 'jsonwebtoken'
+
+import { decode, verify } from 'jsonwebtoken'
 import { createLogger } from '../../utils/logger'
+import Axios from 'axios'
 import { Jwt } from '../../auth/Jwt'
 import { JwtPayload } from '../../auth/JwtPayload'
 
@@ -54,19 +55,36 @@ export const handler = async (
 }
 
 async function verifyToken(authHeader: string): Promise<JwtPayload> {
-  const token = getToken(authHeader);
-  const jwt: Jwt = decode(token, { complete: true }) as Jwt;
+  const token = getToken(authHeader)
+  const jwt: Jwt = decode(token, { complete: true }) as Jwt
+
+  if (!jwt || !jwt.header || !jwt.header.kid || !jwt.header.alg || jwt.header.alg !== 'RS256' ) {
+    logger.error('Invalid JWT token')
+    throw new Error('invalid token');
+  }
+
+  const keyId:string = jwt.header.kid
 
   // TODO: Implement token verification
   // You should implement it similarly to how it was implemented for the exercise for the lesson 5
   // You can read more about how to do this here: https://auth0.com/blog/navigating-rs256-and-jwks/
-  const jwks = await getFirstJWKS();
-  
-  if (jwks.alg === 'RS256' && jwks.kid === jwt.header.kid && jwks.x5c[0]) {
-    const certificate = certToPEM(jwks.x5c[0]);
-    return verify(token,certificate,{algorithms:['RS256']}) as JwtPayload;
+
+  // Get keys from Auth0
+  const jwks = await Axios.get(jwksUrl).then(res => res.data).catch(err => {
+    logger.error('Error fetching jwks', err);
+    throw new Error('Error fetching jwks');
+  })
+
+  // Get Certificate
+  const cert = getSingingKey(jwks, keyId);
+
+  if(!cert) {
+    logger.error('Invalid Certificate', { cert })
+    throw new Error('Invalid token')
   }
-  logger.info('Token Verification Failed');
+
+  return verify(token, cert.publicKey, { algorithms: ['RS256'] }) as JwtPayload
+
 }
 
 function getToken(authHeader: string): string {
@@ -76,28 +94,22 @@ function getToken(authHeader: string): string {
     throw new Error('Invalid authentication header')
 
   const split = authHeader.split(' ')
-  const token = split[1]
-
-  return token
+  return split[1]
 }
 
-// original code at "https://github.com/sgmeyer/auth0-node-jwks-rs256/blob/master/src/lib/JwksClient.js"
-// * ###   start of code   ### * \\
+function getSingingKey(jwks: any, kid: string): any {
+  const signingKeys = jwks.keys.filter(key => key.use === 'sig' // JWK property `use` determines the JWK is for signing
+    && key.kty === 'RSA' // We are only supporting RSA (RS256)
+    && key.kid           // The `kid` must be present to be useful for later
+    && ((key.x5c && key.x5c.length) || (key.n && key.e)) // Has useful public keys
+  ).map(key => {
+    return { kid: key.kid, nbf: key.nbf, publicKey: certToPEM(key.x5c[0]) };
+  });
+  return signingKeys.find(key => key.kid === kid);
+}
 
-export function certToPEM(cert) {
+function certToPEM(cert): string {
   cert = cert.match(/.{1,64}/g).join('\n');
   cert = `-----BEGIN CERTIFICATE-----\n${cert}\n-----END CERTIFICATE-----\n`;
   return cert;
-}
-
-// * ###   end of code   ### * \\
-
-async function getFirstJWKS() {
-  try {
-    const response = await axios(jwksUrl);
-    logger.info('Successfully retrieved jwks key', response);
-    return response.data.keys[0];
-  } catch (err) {
-    logger.error('Failed to retrieve jwks key', err);
-  }
 }

@@ -14,36 +14,25 @@ import {
   Loader
 } from 'semantic-ui-react'
 
-import SemanticDatepicker from 'react-semantic-ui-datepickers';
-import 'react-semantic-ui-datepickers/dist/react-semantic-ui-datepickers.css';
-
-
 import { createTodo, deleteTodo, getTodos, patchTodo } from '../api/todos-api'
+import Auth from '../auth/Auth'
 import { Todo } from '../types/Todo'
-import { withAuthenticationRequired } from '@auth0/auth0-react'
-import Callback from './Callback'
 
 interface TodosProps {
-  getToken: any
+  auth: Auth
   history: History
 }
 
 interface TodosState {
   todos: Todo[]
-  nextKey: string|null
   newTodoName: string
-  newTodoDueDate: Date | null
   loadingTodos: boolean
-  limit: number
 }
 
-class Todos extends React.PureComponent<TodosProps, TodosState> {
+export class Todos extends React.PureComponent<TodosProps, TodosState> {
   state: TodosState = {
-    limit: 10,
     todos: [],
-    nextKey: '',
     newTodoName: '',
-    newTodoDueDate: new Date(),
     loadingTodos: true
   }
 
@@ -51,45 +40,20 @@ class Todos extends React.PureComponent<TodosProps, TodosState> {
     this.setState({ newTodoName: event.target.value })
   }
 
-  handleDueDateChange = (event: (React.SyntheticEvent<Element, Event> | undefined), data : any) => {
-    this.setState({ newTodoDueDate: data.value })
-  }
-
-
-  handleNextKeyClick = async () => {
-    try {
-      this.setState({
-        loadingTodos: true
-      })
-      const { todos, nextKey } = await getTodos(await this.props.getToken(),this.state.limit,this.state.nextKey)
-
-      this.setState({
-        todos,
-        nextKey,
-        loadingTodos: false
-      })
-    } catch (e) {
-      alert(`Failed to fetch todos: ${(e as Error).message}`)
-    }
-  }
-
   onEditButtonClick = (todoId: string) => {
     this.props.history.push(`/todos/${todoId}/edit`)
   }
 
-  onTodoCreate = async () => {
+  onTodoCreate = async (event: React.ChangeEvent<HTMLButtonElement>) => {
     try {
-      // @ts-ignore
-      const dueDate = dateFormat(this.state.newTodoDueDate,'yyyy-mm-dd')
-      const newTodo = await createTodo(await this.props.getToken(), {
+      const dueDate = this.calculateDueDate()
+      const newTodo = await createTodo(this.props.auth.getIdToken(), {
         name: this.state.newTodoName,
         dueDate
       })
-
       this.setState({
         todos: [...this.state.todos, newTodo],
-        newTodoName: '',
-        newTodoDueDate: new Date()
+        newTodoName: ''
       })
     } catch {
       alert('Todo creation failed')
@@ -98,7 +62,7 @@ class Todos extends React.PureComponent<TodosProps, TodosState> {
 
   onTodoDelete = async (todoId: string) => {
     try {
-      await deleteTodo(await this.props.getToken(), todoId)
+      await deleteTodo(this.props.auth.getIdToken(), todoId)
       this.setState({
         todos: this.state.todos.filter(todo => todo.todoId !== todoId)
       })
@@ -110,7 +74,7 @@ class Todos extends React.PureComponent<TodosProps, TodosState> {
   onTodoCheck = async (pos: number) => {
     try {
       const todo = this.state.todos[pos]
-      await patchTodo(await this.props.getToken(), todo.todoId, {
+      await patchTodo(this.props.auth.getIdToken(), todo.todoId, {
         name: todo.name,
         dueDate: todo.dueDate,
         done: !todo.done
@@ -127,10 +91,9 @@ class Todos extends React.PureComponent<TodosProps, TodosState> {
 
   async componentDidMount() {
     try {
-      const { todos, nextKey } = await getTodos(await this.props.getToken(),this.state.limit,this.state.nextKey)
+      const todos = await getTodos(this.props.auth.getIdToken())
       this.setState({
         todos,
-        nextKey,
         loadingTodos: false
       })
     } catch (e) {
@@ -146,57 +109,28 @@ class Todos extends React.PureComponent<TodosProps, TodosState> {
         {this.renderCreateTodoInput()}
 
         {this.renderTodos()}
-
-        {this.renderNextPageButton()}
       </div>
     )
-  }
-
-  renderNextPageButton(): React.ReactNode {
-    if (!this.state.loadingTodos) {
-      return (
-        <Grid centered>
-          <Grid.Column textAlign={"center"}>
-            <Button onClick={this.handleNextKeyClick} >
-              Next page
-            </Button>
-          </Grid.Column>
-        </Grid>
-      )
-    }
   }
 
   renderCreateTodoInput() {
     return (
       <Grid.Row>
         <Grid.Column width={16}>
-          <Grid columns={2}>
-            <Grid.Column width={12}>
-              <Input
-                action={{
-                  color: 'teal',
-                  labelPosition: 'left',
-                  icon: 'add',
-                  content: 'New task',
-                  onClick: this.onTodoCreate
-                }}
-                fluid
-                value={this.state.newTodoName}
-                actionPosition="left"
-                placeholder="To change the world..."
-                onChange={this.handleNameChange}
-              />
-            </Grid.Column>
-            <Grid.Column width={4}>
-              <SemanticDatepicker
-                locale="en-US"
-                clearable
-                value={this.state.newTodoDueDate}
-                onChange={this.handleDueDateChange} />
-            </Grid.Column>
-          </Grid>
+          <Input
+            action={{
+              color: 'teal',
+              labelPosition: 'left',
+              icon: 'add',
+              content: 'New task',
+              onClick: this.onTodoCreate
+            }}
+            fluid
+            actionPosition="left"
+            placeholder="To change the world..."
+            onChange={this.handleNameChange}
+          />
         </Grid.Column>
-
         <Grid.Column width={16}>
           <Divider />
         </Grid.Column>
@@ -225,7 +159,7 @@ class Todos extends React.PureComponent<TodosProps, TodosState> {
   renderTodosList() {
     return (
       <Grid padded>
-        {this.state.todos?.map((todo, pos) => {
+        {this.state.todos.map((todo, pos) => {
           return (
             <Grid.Row key={todo.todoId}>
               <Grid.Column width={1} verticalAlign="middle">
@@ -270,8 +204,11 @@ class Todos extends React.PureComponent<TodosProps, TodosState> {
       </Grid>
     )
   }
-}
 
-export default withAuthenticationRequired(Todos, {
-  onRedirecting: () => <Callback />,
-});
+  calculateDueDate(): string {
+    const date = new Date()
+    date.setDate(date.getDate() + 7)
+
+    return dateFormat(date, 'yyyy-mm-dd') as string
+  }
+}

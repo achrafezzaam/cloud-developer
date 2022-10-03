@@ -1,87 +1,75 @@
 import 'source-map-support/register'
-import { APIGatewayProxyEvent, APIGatewayProxyResult, APIGatewayProxyHandler } from 'aws-lambda'
 
-import { createLogger } from '../../utils/logger'
-import {getUserId} from '../utils';
-import {getAllTodosByUserId} from '../../helpers/todos';
+import { APIGatewayProxyEvent, APIGatewayProxyResult } from 'aws-lambda'
+import * as middy from 'middy'
+import { cors } from 'middy/middlewares'
 
-const logger = createLogger('Get Todos');
-export const handler: APIGatewayProxyHandler = async (event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> => {
-  const currentUser = getUserId(event);
+import { getUserId } from '../utils';
+import { getAllUserTodos } from '../../helpers/todos'
 
-  let limit: number;
-  let nextKey: number;
+// TODO: Get all TODO items for a current user
+export const handler = middy(
+  async (event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> => {
+    // Write your code here
 
-  try {
-    limit = parseLimit(event);
-    nextKey = parseNextKey(event);
-  } catch (err) {
-    logger.info('Failed to parse query parameters', err.message);
-    return {
-      statusCode: 400,
-      headers: {
-        'Access-Control-Allow-Origin': '*'
-      },
-      body: JSON.stringify({
-        error: 'Invalid parameters'
-      })
-    }
-  }
+    const nextKey = parseNextKey(event)
+    const limit = parseLimit(event) || 10
 
-  const res = await getAllTodosByUserId(currentUser, {limit, nextKey});
-  logger.info('User: ', currentUser, 'Todos: ', res.items, 'Next Key: ', res.nextKey);
+    const { items,lastKey } = await getAllUserTodos(getUserId(event), limit, nextKey)
+    const nextKeyEncoded = encodeNextKey(lastKey)
 
-  if (Array.isArray(res.items) && res.items.length > 0) {
     return {
       statusCode: 200,
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-      },
       body: JSON.stringify({
-        items: res.items,
-        nextKey: res.nextKey
+        items: items,
+        nextKey: nextKeyEncoded
       })
     }
+  })
+
+handler.use(
+  cors({
+    credentials: true
+  })
+)
+
+function parseLimit(event) {
+  const limitStr = getQuery(event, 'limit')
+  if (!limitStr) {
+    return undefined
   }
 
-  return {
-    statusCode: 400,
-    headers: {
-      'Access-Control-Allow-Origin': '*',
-    },
-    body: 'No Todos'
-  }
-}
-
-function getQuery(event:APIGatewayProxyEvent, name:string) {
-  const queryParams = event.queryStringParameters;
-  if (!queryParams) {
-    return undefined;
-  }
-
-  return queryParams[name];
-}
-
-function parseNextKey(event:APIGatewayProxyEvent) {
-  const nextKey = getQuery(event, 'nextKey');
-  if (!nextKey) {
-    return undefined;
-  }
-
-  const decodedUri = decodeURIComponent(nextKey);
-  return JSON.parse(decodedUri);
-}
-
-function parseLimit(event:APIGatewayProxyEvent) {
-  const limitVal = getQuery(event, 'limit');
-  if (!limitVal) {
-    return undefined;
-  }
-
-  const limit = parseInt(limitVal, 20);
+  const limit = parseInt(limitStr, 10)
   if (limit <= 0) {
-    throw new Error('Limit Must Be Positive');
+    throw new Error('Limit Should Be Positive')
   }
 
-  return limit;
+  return limit
+}
+
+function parseNextKey(event) {
+  const nextKeyStr = getQuery(event, 'nextKey')
+  if (!nextKeyStr) {
+    return undefined
+  }
+
+  const uriDecoded = decodeURIComponent(nextKeyStr)
+  return JSON.parse(uriDecoded)
+}
+
+function getQuery(event, name) {
+  const queryParams = event.queryStringParameters
+  if (!queryParams) {
+    return undefined
+  }
+
+  return queryParams[name]
+}
+
+function encodeNextKey(lastEvaluatedKey) {
+  if (!lastEvaluatedKey) {
+    return null
+  }
+
+  return encodeURIComponent(JSON.stringify(lastEvaluatedKey))
 }
